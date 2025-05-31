@@ -93,6 +93,10 @@ class HookedTransformerConfig:
             available, else 'cpu'. Must be 'cuda' if `n_devices` > 1.
         n_devices (int): The number of devices to use for the model. Defaults to 1. Layers are loaded
             to support "pipeline parallelism", where each device is responsible for a subset of the layers.
+        device_allocation_strategy (str): The strategy to use for allocating layers to devices when using
+            multiple devices. Options are 'sequential' (place contiguous blocks on same device until 
+            memory cap reached) and 'greedy' (round-robin allocation). Defaults to 'sequential'.
+            This is only used if `n_devices` > 1.   
         attention_dir (str): Whether to use causal (aka unidirectional aka GPT-2
             style) or bidirectional attention. Options are 'causal' and
             'bidirectional'. Defaults to 'causal'
@@ -226,6 +230,7 @@ class HookedTransformerConfig:
     normalization_type: Optional[str] = "LN"
     device: Optional[str] = None
     n_devices: int = 1
+    device_allocation_strategy: str = "sequential"
     attention_dir: str = "causal"
     attn_only: bool = False
     seed: Optional[int] = None
