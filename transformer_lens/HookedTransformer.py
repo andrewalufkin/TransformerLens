@@ -37,7 +37,6 @@ from typing_extensions import Literal
 
 import transformer_lens.loading_from_pretrained as loading
 import transformer_lens.utils as utils
-from transformer_lens.utilities import devices
 from transformer_lens.ActivationCache import ActivationCache
 from transformer_lens.components import (
     Embed,
@@ -1099,9 +1098,10 @@ class HookedTransformer(HookedRootModule):
         Uses the new device allocation strategy for multi-device setups, falls back
         to single-device allocation for backward compatibility.
         """
-        from transformer_lens.utilities.devices import allocate_model_devices
         import warnings
-        
+
+        from transformer_lens.utilities.devices import allocate_model_devices
+
         # Single device case: use original logic for maximum compatibility
         if self.cfg.n_devices <= 1 or self.cfg.device == "cpu":
             # Original behavior preserved exactly

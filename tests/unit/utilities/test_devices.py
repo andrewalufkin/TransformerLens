@@ -1,15 +1,17 @@
 from unittest.mock import Mock, patch
-import torch
+
 import pytest
+import torch
+
+from transformer_lens.HookedTransformerConfig import HookedTransformerConfig
 from transformer_lens.utilities.devices import (
+    ModuleInfo,
+    TransformerDeviceAllocator,
+    allocate_model_devices,
     calculate_available_device_cuda_memory,
     determine_available_memory_for_available_devices,
     sort_devices_based_on_available_memory,
-    allocate_model_devices,
-    TransformerDeviceAllocator,
-    ModuleInfo,
 )
-from transformer_lens.HookedTransformerConfig import HookedTransformerConfig
 
 
 def mock_available_devices(memory_stats: list[tuple[int, int]]):

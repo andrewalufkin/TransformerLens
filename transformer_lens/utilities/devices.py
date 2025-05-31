@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import logging
 import warnings
-from typing import Optional, Union, Dict, List
 from dataclasses import dataclass
+from typing import Dict, List, Optional, Union
 
 import torch
 from torch import nn
