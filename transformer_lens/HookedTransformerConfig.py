@@ -230,7 +230,7 @@ class HookedTransformerConfig:
     normalization_type: Optional[str] = "LN"
     device: Optional[str] = None
     n_devices: int = 1
-    device_allocation_strategy: str = "sequential"
+    device_allocation_strategy: Optional[str] = "sequential"
     attention_dir: str = "causal"
     attn_only: bool = False
     seed: Optional[int] = None

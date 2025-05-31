@@ -1567,7 +1567,7 @@ def get_pretrained_model_config(
     default_prepend_bos: Optional[bool] = None,
     dtype: torch.dtype = torch.float32,
     first_n_layers: Optional[int] = None,
-    device_allocation_strategy: Optional[str] = None,  # NEW PARAMETER
+    device_allocation_strategy: Optional[str] = "sequential",
     **kwargs,
 ):
     """Returns the pretrained model config as an HookedTransformerConfig object.
