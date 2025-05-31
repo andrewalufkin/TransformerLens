@@ -1092,17 +1092,96 @@ class HookedTransformer(HookedRootModule):
         return self.to("mps")
 
     def move_model_modules_to_device(self):
-        self.embed.to(devices.get_best_available_device(self.cfg))
-        self.hook_embed.to(devices.get_best_available_device(self.cfg))
-        if self.cfg.positional_embedding_type != "rotary":
-            self.pos_embed.to(devices.get_best_available_device(self.cfg))
-            self.hook_pos_embed.to(devices.get_best_available_device(self.cfg))
+        """
+        Move model modules to appropriate devices using our new sequential allocator.
+        
+        Uses the new device allocation strategy for multi-device setups, falls back
+        to single-device allocation for backward compatibility.
+        """
+        import warnings
 
-        if hasattr(self, "ln_final"):
-            self.ln_final.to(devices.get_best_available_device(self.cfg))
-        self.unembed.to(devices.get_best_available_device(self.cfg))
-        for i, block in enumerate(self.blocks):
-            block.to(devices.get_best_available_device(self.cfg))
+        from transformer_lens.utilities.devices import allocate_model_devices
+
+        # Single device case: use original logic for maximum compatibility
+        if self.cfg.n_devices <= 1 or self.cfg.device == "cpu":
+            # Original behavior preserved exactly
+            self.embed.to(devices.get_best_available_device(self.cfg))
+            self.hook_embed.to(devices.get_best_available_device(self.cfg))
+            if self.cfg.positional_embedding_type != "rotary":
+                self.pos_embed.to(devices.get_best_available_device(self.cfg))
+                self.hook_pos_embed.to(devices.get_best_available_device(self.cfg))
+            if hasattr(self, "ln_final"):
+                self.ln_final.to(devices.get_best_available_device(self.cfg))
+            self.unembed.to(devices.get_best_available_device(self.cfg))
+            for i, block in enumerate(self.blocks):
+                block.to(devices.get_best_available_device(self.cfg))
+            return
+        
+        # Multi-device case: use our new allocator
+        try:
+            # Determine allocation strategy with backward compatibility
+            strategy = getattr(self.cfg, 'device_allocation_strategy', None)
+            
+            # Handle backward compatibility: default to greedy for now, with deprecation warning
+            if strategy is None:
+                warnings.warn(
+                    "Multi-device allocation will change from 'greedy' to 'sequential' in TransformerLens 0.13. "
+                    "To suppress this warning and maintain current behavior, use "
+                    "HookedTransformer.from_pretrained(..., device_allocation_strategy='greedy'). "
+                    "For improved performance, use device_allocation_strategy='sequential'.",
+                    DeprecationWarning,
+                    stacklevel=2
+                )
+                strategy = 'greedy'  # Maintain current behavior for now
+            
+            # Get device allocation map using our new allocator
+            device_allocation_map = allocate_model_devices(
+                self.cfg,
+                strategy=strategy,
+                max_devices=self.cfg.n_devices
+            )
+            
+            # Store allocation map for runtime use by get_device_for_block_index
+            self.cfg.device_allocation_map = device_allocation_map
+            
+            # Apply device allocation to all modules
+            self.embed.to(torch.device(device_allocation_map.get("embed", self.cfg.device)))
+            self.hook_embed.to(torch.device(device_allocation_map.get("embed", self.cfg.device)))
+            
+            if self.cfg.positional_embedding_type != "rotary":
+                self.pos_embed.to(torch.device(device_allocation_map.get("pos_embed", self.cfg.device)))
+                self.hook_pos_embed.to(torch.device(device_allocation_map.get("pos_embed", self.cfg.device)))
+            
+            if hasattr(self, "ln_final"):
+                self.ln_final.to(torch.device(device_allocation_map.get("ln_final", self.cfg.device)))
+            
+            self.unembed.to(torch.device(device_allocation_map.get("unembed", self.cfg.device)))
+            
+            # Move transformer blocks to allocated devices
+            for i, block in enumerate(self.blocks):
+                block_device = torch.device(device_allocation_map.get(f"blocks.{i}", self.cfg.device))
+                block.to(block_device)
+                
+            print(f"✓ Applied {strategy} device allocation across {self.cfg.n_devices} devices")
+            
+        except Exception as e:
+            # Graceful fallback to original behavior if anything goes wrong
+            warnings.warn(
+                f"New device allocator failed ({e}), falling back to original allocation method",
+                RuntimeWarning
+            )
+            
+            # Fallback: use original logic
+            self.embed.to(devices.get_best_available_device(self.cfg))
+            self.hook_embed.to(devices.get_best_available_device(self.cfg))
+            if self.cfg.positional_embedding_type != "rotary":
+                self.pos_embed.to(devices.get_best_available_device(self.cfg))
+                self.hook_pos_embed.to(devices.get_best_available_device(self.cfg))
+            if hasattr(self, "ln_final"):
+                self.ln_final.to(devices.get_best_available_device(self.cfg))
+            self.unembed.to(devices.get_best_available_device(self.cfg))
+            for i, block in enumerate(self.blocks):
+                block.to(devices.get_best_available_device(self.cfg))
 
     @classmethod
     def from_pretrained(
@@ -1117,6 +1196,7 @@ class HookedTransformer(HookedRootModule):
         hf_model: Optional[AutoModelForCausalLM] = None,
         device: Optional[Union[str, torch.device]] = None,
         n_devices: int = 1,
+        device_allocation_strategy: Optional[str] = None,  # NEW PARAMETER
         tokenizer: Optional[PreTrainedTokenizerBase] = None,
         move_to_device: bool = True,
         fold_value_biases: bool = True,
@@ -1217,6 +1297,12 @@ class HookedTransformer(HookedRootModule):
                 default will load to CUDA if available, else CPU.
             n_devices: The number of devices to split the model
                 across. Defaults to 1. If greater than 1, `device` must be cuda.
+            device_allocation_strategy: Strategy for multi-device allocation when n_devices > 1.
+                "sequential" (recommended) keeps transformer blocks together on the same GPU until 
+                memory constraints force a move to the next GPU, providing better performance.
+                "greedy" uses round-robin allocation for backward compatibility.
+                If None, defaults to "greedy" with deprecation warning (will change to "sequential" in v0.13).
+                Ignored when n_devices <= 1.
             tokenizer: The tokenizer to use for the model. If not
                 provided, it is inferred from cfg.tokenizer_name or initialized to None. If None,
                 then the model cannot be passed strings, and d_vocab must be explicitly set.
@@ -1322,6 +1408,7 @@ class HookedTransformer(HookedRootModule):
             fold_ln=fold_ln,
             device=device,
             n_devices=n_devices,
+            device_allocation_strategy=device_allocation_strategy,  # NEW PARAMETER PASSED THROUGH
             default_prepend_bos=default_prepend_bos,
             dtype=dtype,
             first_n_layers=first_n_layers,
