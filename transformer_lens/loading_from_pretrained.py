@@ -1567,6 +1567,7 @@ def get_pretrained_model_config(
     default_prepend_bos: Optional[bool] = None,
     dtype: torch.dtype = torch.float32,
     first_n_layers: Optional[int] = None,
+    device_allocation_strategy: Optional[str] = None,  # NEW PARAMETER
     **kwargs,
 ):
     """Returns the pretrained model config as an HookedTransformerConfig object.
@@ -1605,6 +1606,10 @@ def get_pretrained_model_config(
             so this empirically seems to give better results. Note that you can also locally override the default behavior
             by passing in prepend_bos=True/False when you call a method that processes the input string.
         dtype (torch.dtype, optional): The dtype to load the TransformerLens model in.
+        device_allocation_strategy (str, optional): Strategy for multi-device allocation when n_devices > 1.
+            "sequential" (recommended) keeps transformer blocks together for better performance,
+            "greedy" uses round-robin allocation for backward compatibility.
+            If None, defaults to "greedy" with deprecation warning (will change to "sequential" in v0.13).
         kwargs: Other optional arguments passed to HuggingFace's from_pretrained.
             Also given to other HuggingFace functions when compatible.
 
@@ -1680,6 +1685,26 @@ def get_pretrained_model_config(
 
     cfg_dict["device"] = device
     cfg_dict["n_devices"] = n_devices
+
+    # NEW: Handle device allocation strategy
+    if device_allocation_strategy is not None:
+        # Validate the strategy
+        if device_allocation_strategy not in ["sequential", "greedy"]:
+            raise ValueError(
+                f"device_allocation_strategy must be 'sequential' or 'greedy', got '{device_allocation_strategy}'"
+            )
+        cfg_dict["device_allocation_strategy"] = device_allocation_strategy
+    elif n_devices > 1:
+        # Multi-device setup without explicit strategy - will show deprecation warning later
+        cfg_dict["device_allocation_strategy"] = None
+    else:
+        # Single device setup - strategy doesn't matter
+        cfg_dict["device_allocation_strategy"] = "single"
+    
+    # Handle explicit device bypass (fixes issue #906)
+    if device is not None and n_devices <= 1:
+        # User explicitly requested single device, ensure we bypass multi-device allocator
+        cfg_dict["device_allocation_strategy"] = "single"
 
     if default_prepend_bos is not None:
         # User explicitly set prepend_bos behavior, override config/default value
