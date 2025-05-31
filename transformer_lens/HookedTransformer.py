@@ -1092,383 +1092,384 @@ class HookedTransformer(HookedRootModule):
         """Wrapper around mps that also changes `self.cfg.device`."""
         return self.to("mps")
 
-def move_model_modules_to_device(self):
-    """
-    Move model modules to appropriate devices using our new sequential allocator.
-    
-    Uses the new device allocation strategy for multi-device setups, falls back
-    to single-device allocation for backward compatibility.
-    """
-    from transformer_lens.utilities.devices import allocate_model_devices
-    import warnings
-    
-    # Single device case: use original logic for maximum compatibility
-    if self.cfg.n_devices <= 1 or self.cfg.device == "cpu":
-        # Original behavior preserved exactly
-        self.embed.to(devices.get_best_available_device(self.cfg))
-        self.hook_embed.to(devices.get_best_available_device(self.cfg))
-        if self.cfg.positional_embedding_type != "rotary":
-            self.pos_embed.to(devices.get_best_available_device(self.cfg))
-            self.hook_pos_embed.to(devices.get_best_available_device(self.cfg))
-        if hasattr(self, "ln_final"):
-            self.ln_final.to(devices.get_best_available_device(self.cfg))
-        self.unembed.to(devices.get_best_available_device(self.cfg))
-        for i, block in enumerate(self.blocks):
-            block.to(devices.get_best_available_device(self.cfg))
-        return
-    
-    # Multi-device case: use our new allocator
-    try:
-        # Determine allocation strategy with backward compatibility
-        strategy = getattr(self.cfg, 'device_allocation_strategy', None)
+    def move_model_modules_to_device(self):
+        """
+        Move model modules to appropriate devices using our new sequential allocator.
         
-        # Handle backward compatibility: default to greedy for now, with deprecation warning
-        if strategy is None:
-            warnings.warn(
-                "Multi-device allocation will change from 'greedy' to 'sequential' in TransformerLens 0.13. "
-                "To suppress this warning and maintain current behavior, use "
-                "HookedTransformer.from_pretrained(..., device_allocation_strategy='greedy'). "
-                "For improved performance, use device_allocation_strategy='sequential'.",
-                DeprecationWarning,
-                stacklevel=2
-            )
-            strategy = 'greedy'  # Maintain current behavior for now
+        Uses the new device allocation strategy for multi-device setups, falls back
+        to single-device allocation for backward compatibility.
+        """
+        from transformer_lens.utilities.devices import allocate_model_devices
+        import warnings
         
-        # Get device allocation map using our new allocator
-        device_allocation_map = allocate_model_devices(
-            self.cfg,
-            strategy=strategy,
-            max_devices=self.cfg.n_devices
-        )
+        # Single device case: use original logic for maximum compatibility
+        if self.cfg.n_devices <= 1 or self.cfg.device == "cpu":
+            # Original behavior preserved exactly
+            self.embed.to(devices.get_best_available_device(self.cfg))
+            self.hook_embed.to(devices.get_best_available_device(self.cfg))
+            if self.cfg.positional_embedding_type != "rotary":
+                self.pos_embed.to(devices.get_best_available_device(self.cfg))
+                self.hook_pos_embed.to(devices.get_best_available_device(self.cfg))
+            if hasattr(self, "ln_final"):
+                self.ln_final.to(devices.get_best_available_device(self.cfg))
+            self.unembed.to(devices.get_best_available_device(self.cfg))
+            for i, block in enumerate(self.blocks):
+                block.to(devices.get_best_available_device(self.cfg))
+            return
         
-        # Store allocation map for runtime use by get_device_for_block_index
-        self.cfg.device_allocation_map = device_allocation_map
-        
-        # Apply device allocation to all modules
-        self.embed.to(torch.device(device_allocation_map.get("embed", self.cfg.device)))
-        self.hook_embed.to(torch.device(device_allocation_map.get("embed", self.cfg.device)))
-        
-        if self.cfg.positional_embedding_type != "rotary":
-            self.pos_embed.to(torch.device(device_allocation_map.get("pos_embed", self.cfg.device)))
-            self.hook_pos_embed.to(torch.device(device_allocation_map.get("pos_embed", self.cfg.device)))
-        
-        if hasattr(self, "ln_final"):
-            self.ln_final.to(torch.device(device_allocation_map.get("ln_final", self.cfg.device)))
-        
-        self.unembed.to(torch.device(device_allocation_map.get("unembed", self.cfg.device)))
-        
-        # Move transformer blocks to allocated devices
-        for i, block in enumerate(self.blocks):
-            block_device = torch.device(device_allocation_map.get(f"blocks.{i}", self.cfg.device))
-            block.to(block_device)
+        # Multi-device case: use our new allocator
+        try:
+            # Determine allocation strategy with backward compatibility
+            strategy = getattr(self.cfg, 'device_allocation_strategy', None)
             
-        print(f"✓ Applied {strategy} device allocation across {self.cfg.n_devices} devices")
-        
-    except Exception as e:
-        # Graceful fallback to original behavior if anything goes wrong
-        warnings.warn(
-            f"New device allocator failed ({e}), falling back to original allocation method",
-            RuntimeWarning
-        )
-        
-        # Fallback: use original logic
-        self.embed.to(devices.get_best_available_device(self.cfg))
-        self.hook_embed.to(devices.get_best_available_device(self.cfg))
-        if self.cfg.positional_embedding_type != "rotary":
-            self.pos_embed.to(devices.get_best_available_device(self.cfg))
-            self.hook_pos_embed.to(devices.get_best_available_device(self.cfg))
-        if hasattr(self, "ln_final"):
-            self.ln_final.to(devices.get_best_available_device(self.cfg))
-        self.unembed.to(devices.get_best_available_device(self.cfg))
-        for i, block in enumerate(self.blocks):
-            block.to(devices.get_best_available_device(self.cfg))
-@classmethod
-def from_pretrained(
-    cls: Type[T],
-    model_name: str,
-    fold_ln: bool = True,
-    center_writing_weights: bool = True,
-    center_unembed: bool = True,
-    refactor_factored_attn_matrices: bool = False,
-    checkpoint_index: Optional[int] = None,
-    checkpoint_value: Optional[int] = None,
-    hf_model: Optional[AutoModelForCausalLM] = None,
-    device: Optional[Union[str, torch.device]] = None,
-    n_devices: int = 1,
-    device_allocation_strategy: Optional[str] = None,  # NEW PARAMETER
-    tokenizer: Optional[PreTrainedTokenizerBase] = None,
-    move_to_device: bool = True,
-    fold_value_biases: bool = True,
-    default_prepend_bos: Optional[bool] = None,
-    default_padding_side: Literal["left", "right"] = "right",
-    dtype="float32",
-    first_n_layers: Optional[int] = None,
-    **from_pretrained_kwargs,
-) -> T:
-    """Load in a Pretrained Model.
-
-    Load in pretrained model weights to the HookedTransformer format and optionally to do some
-    processing to make the model easier to interpret. Currently supports loading from most
-    autoregressive HuggingFace models (``gpt2``, ``neo``, ``gptj``, ``opt``...) and from a range
-    of toy models and SoLU models trained by Neel Nanda. The full list is available in the docs
-    under :doc:`model properties</generated/model_properties_table>`. Also supports loading from
-    a checkpoint for checkpointed models (currently, models trained by NeelNanda and the
-    stanford-crfm models (using parameters ``checkpoint_index`` and ``checkpoint_value``).
-
-    See :meth:`load_and_process_state_dict` for details on the processing (folding layer norm,
-    centering the unembedding and centering the writing weights).
-
-    Example:
-
-    >>> from transformer_lens import HookedTransformer
-    >>> model = HookedTransformer.from_pretrained("tiny-stories-1M")
-    Loaded pretrained model tiny-stories-1M into HookedTransformer
-
-    Args:
-        model_name: The model name - must be an element of
-            :const:`transformer_lens.loading_from_pretrained.OFFICIAL_MODEL_NAMES` or an alias
-            of one. The full list of available models can be found in the docs under :doc:`model
-            properties</generated/model_properties_table>`.
-        fold_ln: Whether to fold in the LayerNorm weights to the
-            subsequent linear layer. This does not change the computation.
-
-            `LayerNorm
-            <https://wandb.ai/wandb_fc/LayerNorm/reports/Layer-Normalization-in-Pytorch-With-Examples---VmlldzoxMjk5MTk1>`_
-            is a common regularization technique used in transformers. Unlike BatchNorm, it
-            cannot be turned off at inference time, as it significantly alters the mathematical
-            function implemented by the transformer.
-
-            When `fold_ln` is set to True, LayerNorm (with weights :math:`w_{ln}` and
-            :math:`b_{ln}`) followed by a linear layer (:math:`W + b`) is optimized to
-            LayerNormPre (just centering & normalizing) followed by a new linear layer with
-            :math:`W_{eff} = w[:, \text{None}] * W` (element-wise multiplication) and
-            :math:`b_{eff} = b + b_{ln} @ W`. This transformation is computationally equivalent
-            and simplifies the model's interpretability. It essentially merges LayerNorm weights
-            into the subsequent linear layer's weights, which is handled by HookedTransformer
-            when loading pre-trained weights. Set `fold_ln` to False when loading a state dict
-            if you wish to turn this off.
-
-            Mathematically, LayerNorm is defined as follows:
-
-            .. math::
-                x_1 &= x_0 - \\text{mean}(x_0)
-
-                x_2 &= \\frac{x_1}{\\sqrt{\\text{mean}(x_1^2)}}
-
-                x_3 &= x_2 \\cdot w
-
-                x_4 &= x_3 + b
-
-            For further details, refer to `this document
-            <https://transformer-circuits.pub/2021/framework/index.html#:~:text=Handling%20Layer%20Normalization>`_.
-        center_writing_weights: Whether to center weights
-            writing to the residual stream (ie set mean to be zero). Due to LayerNorm this
-            doesn't change the computation.
-
-            A related idea to folding layernorm (``fold_ln``) - *every* component reading an
-            input from the residual stream is preceded by a LayerNorm, which means that the mean
-            of a residual stream vector (ie the component in the direction of all ones) never
-            matters. This means we can remove the all ones component of weights and biases whose
-            output *writes* to the residual stream. Mathematically, ``W_writing -=
-            W_writing.mean(dim=1, keepdim=True)``.
-        center_unembed: Whether to center W_U (ie set mean
-            to be zero). Softmax is translation invariant so this doesn't affect log probs or
-            loss, but does change logits.
-
-            The logits are fed into a softmax. Softmax is translation invariant (eg, adding 1 to
-            every logit doesn't change the output), so we can simplify things by setting the
-            mean of the logits to be zero. This is equivalent to setting the mean of every
-            output vector of ``W_U`` to zero. In code, ``W_U -= W_U.mean(dim=-1,
-            keepdim=True)``.
-        refactor_factored_attn_matrices: Whether to convert the factored
-            matrices (W_Q & W_K, and W_O & W_V) to be "even". Defaults to False
-        checkpoint_index: If loading from a checkpoint, the index of
-            the checkpoint to load.
-        checkpoint_value: If loading from a checkpoint, the value of
-            the checkpoint to load, ie the step or token number (each model has checkpoints
-            labelled with exactly one of these). E.g. ``1000`` for a checkpoint taken at step
-            1000 or after 1000 tokens. If `checkpoint_index` is also specified, this will be
-            ignored.
-        hf_model: If you have already loaded in the
-            HuggingFace model, you can pass it in here rather than needing to recreate the
-            object. Defaults to None.
-        device: The device to load the model onto. By
-            default will load to CUDA if available, else CPU.
-        n_devices: The number of devices to split the model
-            across. Defaults to 1. If greater than 1, `device` must be cuda.
-        device_allocation_strategy: Strategy for multi-device allocation when n_devices > 1.
-            "sequential" (recommended) keeps transformer blocks together on the same GPU until 
-            memory constraints force a move to the next GPU, providing better performance.
-            "greedy" uses round-robin allocation for backward compatibility.
-            If None, defaults to "greedy" with deprecation warning (will change to "sequential" in v0.13).
-            Ignored when n_devices <= 1.
-        tokenizer: The tokenizer to use for the model. If not
-            provided, it is inferred from cfg.tokenizer_name or initialized to None. If None,
-            then the model cannot be passed strings, and d_vocab must be explicitly set.
-        move_to_device: Whether to move the model to the device specified in
-            cfg. device. Must be true if `n_devices` in the config is greater than 1, since the
-            model's layers will be split across multiple devices.
-        fold_value_biases: Each attention head has a value bias. Values are averaged to create
-            mixed values (``z``), weighted by the attention pattern, but as the bias is
-            constant, its contribution to ``z`` is exactly the same. The output of a head is ``z
-            @ W_O``, and so the value bias just linearly adds to the output of the head. This
-            means that the value bias of a head has nothing to do with the head, and is just a
-            constant added to the attention layer outputs. We can take the sum across these and
-            b_O to get an "effective bias" for the layer. In code, we set ``b_V=0``. and ``b_O =
-            (b_V @ W_O).sum(dim=0) + b_O``.
-
-            The technical derivation of this is as follows. ``v = residual @ W_V[h] +
-            broadcast_b_V[h]`` for each head ``h`` (where ``b_V`` is broadcast up from shape
-            ``d_head`` to shape ``[position, d_head]``). And ``z = pattern[h] @ v = pattern[h] @
-            residual @ W_V[h] + pattern[h] @ broadcast_b_V[h]``. Because ``pattern[h]`` is
-            ``[destination_position, source_position]`` and ``broadcast_b_V`` is constant along
-            the ``(source_)position`` dimension, we're basically just multiplying it by the sum
-            of the pattern across the ``source_position`` dimension, which is just ``1``. So it
-            remains exactly the same, and so is just broadcast across the destination positions.
-        default_prepend_bos: Default behavior of whether to prepend the BOS
-            token when the methods of HookedTransformer process input text to tokenize (only
-            when input is a string).
-            Resolution order for default_prepend_bos:
-            1. If user passes value explicitly, use that value
-            2. Model-specific default from cfg_dict if it exists (e.g. for bloom models it's False)
-            3. Global default (True)
-
-            Even for models not explicitly trained with the BOS token, heads often use the first position as a resting position
-            and accordingly lose information from the first token, so this empirically seems to give better
-            results. Note that you can also locally override the default behavior by passing in
-            prepend_bos=True/False when you call a method that processes the input string.
-        from_pretrained_kwargs: Any other optional argument passed to
-            HuggingFace's from_pretrained (e.g. "cache_dir" or "torch_dtype"). Also passed to
-            other HuggingFace functions when compatible. For some models or arguments it doesn't
-            work, especially for models that are not internally loaded with HuggingFace's
-            from_pretrained (e.g. SoLU models).
-        dtype: What data type to load the model in (also sets the dtype of
-            the HuggingFace model). Set to bfloat16 or float16 if you get out of memory errors when loading
-            the model.
-        default_padding_side: Which side to pad on when tokenizing. Defaults to
-            "right".
-        first_n_layers: If specified, only load the first n layers of the model.
-    """
-    if model_name.lower().startswith("t5"):
-        raise RuntimeError(
-            "Execution stopped: Please use HookedEncoderDecoder to load T5 models instead of HookedTransformer."
-        )
-
-    assert not (
-        from_pretrained_kwargs.get("load_in_8bit", False)
-        or from_pretrained_kwargs.get("load_in_4bit", False)
-    ), "Quantization not supported"
-
-    if hf_model is not None:
-        hf_cfg = hf_model.config.to_dict()
-        qc = hf_cfg.get("quantization_config", {})
-        load_in_4bit = qc.get("load_in_4bit", False)
-        load_in_8bit = qc.get("load_in_8bit", False)
-        quant_method = qc.get("quant_method", "")
-        assert not load_in_8bit, "8-bit quantization is not supported"
-        assert not (
-            load_in_4bit and (version.parse(torch.__version__) < version.parse("2.1.1"))
-        ), "Quantization is only supported for torch versions >= 2.1.1"
-        assert not (
-            load_in_4bit and ("llama" not in model_name.lower())
-        ), "Quantization is only supported for Llama models"
-        if load_in_4bit:
-            assert (
-                qc.get("quant_method", "") == "bitsandbytes"
-            ), "Only bitsandbytes quantization is supported"
-    else:
-        hf_cfg = {}
-
-    if isinstance(dtype, str):
-        # Convert from string to a torch dtype
-        dtype = DTYPE_FROM_STRING[dtype]
-    if "torch_dtype" in from_pretrained_kwargs:
-        # For backwards compatibility with the previous way to do low precision loading
-        # This should maybe check the user did not explicitly set dtype *and* torch_dtype
-        dtype = from_pretrained_kwargs["torch_dtype"]
-
-    if (
-        (from_pretrained_kwargs.get("torch_dtype", None) == torch.float16)
-        or dtype == torch.float16
-    ) and device in ["cpu", None]:
-        logging.warning("float16 models may not work on CPU. Consider using a GPU or bfloat16.")
-
-    # Get the model name used in HuggingFace, rather than the alias.
-    official_model_name = loading.get_official_model_name(model_name)
-
-    # Load the config into an HookedTransformerConfig object. If loading from a
-    # checkpoint, the config object will contain the information about the
-    # checkpoint
-    cfg = loading.get_pretrained_model_config(
-        official_model_name,
-        hf_cfg=hf_cfg,
-        checkpoint_index=checkpoint_index,
-        checkpoint_value=checkpoint_value,
-        fold_ln=fold_ln,
-        device=device,
-        n_devices=n_devices,
-        device_allocation_strategy=device_allocation_strategy,  # NEW PARAMETER PASSED THROUGH
-        default_prepend_bos=default_prepend_bos,
-        dtype=dtype,
-        first_n_layers=first_n_layers,
-        **from_pretrained_kwargs,
-    )
-
-    if cfg.positional_embedding_type == "shortformer":
-        if fold_ln:
-            logging.warning(
-                "You tried to specify fold_ln=True for a shortformer model, but this can't be done! Setting fold_"
-                "ln=False instead."
+            # Handle backward compatibility: default to greedy for now, with deprecation warning
+            if strategy is None:
+                warnings.warn(
+                    "Multi-device allocation will change from 'greedy' to 'sequential' in TransformerLens 0.13. "
+                    "To suppress this warning and maintain current behavior, use "
+                    "HookedTransformer.from_pretrained(..., device_allocation_strategy='greedy'). "
+                    "For improved performance, use device_allocation_strategy='sequential'.",
+                    DeprecationWarning,
+                    stacklevel=2
+                )
+                strategy = 'greedy'  # Maintain current behavior for now
+            
+            # Get device allocation map using our new allocator
+            device_allocation_map = allocate_model_devices(
+                self.cfg,
+                strategy=strategy,
+                max_devices=self.cfg.n_devices
             )
-            fold_ln = False
-        if center_unembed:
+            
+            # Store allocation map for runtime use by get_device_for_block_index
+            self.cfg.device_allocation_map = device_allocation_map
+            
+            # Apply device allocation to all modules
+            self.embed.to(torch.device(device_allocation_map.get("embed", self.cfg.device)))
+            self.hook_embed.to(torch.device(device_allocation_map.get("embed", self.cfg.device)))
+            
+            if self.cfg.positional_embedding_type != "rotary":
+                self.pos_embed.to(torch.device(device_allocation_map.get("pos_embed", self.cfg.device)))
+                self.hook_pos_embed.to(torch.device(device_allocation_map.get("pos_embed", self.cfg.device)))
+            
+            if hasattr(self, "ln_final"):
+                self.ln_final.to(torch.device(device_allocation_map.get("ln_final", self.cfg.device)))
+            
+            self.unembed.to(torch.device(device_allocation_map.get("unembed", self.cfg.device)))
+            
+            # Move transformer blocks to allocated devices
+            for i, block in enumerate(self.blocks):
+                block_device = torch.device(device_allocation_map.get(f"blocks.{i}", self.cfg.device))
+                block.to(block_device)
+                
+            print(f"✓ Applied {strategy} device allocation across {self.cfg.n_devices} devices")
+            
+        except Exception as e:
+            # Graceful fallback to original behavior if anything goes wrong
+            warnings.warn(
+                f"New device allocator failed ({e}), falling back to original allocation method",
+                RuntimeWarning
+            )
+            
+            # Fallback: use original logic
+            self.embed.to(devices.get_best_available_device(self.cfg))
+            self.hook_embed.to(devices.get_best_available_device(self.cfg))
+            if self.cfg.positional_embedding_type != "rotary":
+                self.pos_embed.to(devices.get_best_available_device(self.cfg))
+                self.hook_pos_embed.to(devices.get_best_available_device(self.cfg))
+            if hasattr(self, "ln_final"):
+                self.ln_final.to(devices.get_best_available_device(self.cfg))
+            self.unembed.to(devices.get_best_available_device(self.cfg))
+            for i, block in enumerate(self.blocks):
+                block.to(devices.get_best_available_device(self.cfg))
+
+    @classmethod
+    def from_pretrained(
+        cls: Type[T],
+        model_name: str,
+        fold_ln: bool = True,
+        center_writing_weights: bool = True,
+        center_unembed: bool = True,
+        refactor_factored_attn_matrices: bool = False,
+        checkpoint_index: Optional[int] = None,
+        checkpoint_value: Optional[int] = None,
+        hf_model: Optional[AutoModelForCausalLM] = None,
+        device: Optional[Union[str, torch.device]] = None,
+        n_devices: int = 1,
+        device_allocation_strategy: Optional[str] = None,  # NEW PARAMETER
+        tokenizer: Optional[PreTrainedTokenizerBase] = None,
+        move_to_device: bool = True,
+        fold_value_biases: bool = True,
+        default_prepend_bos: Optional[bool] = None,
+        default_padding_side: Literal["left", "right"] = "right",
+        dtype="float32",
+        first_n_layers: Optional[int] = None,
+        **from_pretrained_kwargs,
+    ) -> T:
+        """Load in a Pretrained Model.
+
+        Load in pretrained model weights to the HookedTransformer format and optionally to do some
+        processing to make the model easier to interpret. Currently supports loading from most
+        autoregressive HuggingFace models (``gpt2``, ``neo``, ``gptj``, ``opt``...) and from a range
+        of toy models and SoLU models trained by Neel Nanda. The full list is available in the docs
+        under :doc:`model properties</generated/model_properties_table>`. Also supports loading from
+        a checkpoint for checkpointed models (currently, models trained by NeelNanda and the
+        stanford-crfm models (using parameters ``checkpoint_index`` and ``checkpoint_value``).
+
+        See :meth:`load_and_process_state_dict` for details on the processing (folding layer norm,
+        centering the unembedding and centering the writing weights).
+
+        Example:
+
+        >>> from transformer_lens import HookedTransformer
+        >>> model = HookedTransformer.from_pretrained("tiny-stories-1M")
+        Loaded pretrained model tiny-stories-1M into HookedTransformer
+
+        Args:
+            model_name: The model name - must be an element of
+                :const:`transformer_lens.loading_from_pretrained.OFFICIAL_MODEL_NAMES` or an alias
+                of one. The full list of available models can be found in the docs under :doc:`model
+                properties</generated/model_properties_table>`.
+            fold_ln: Whether to fold in the LayerNorm weights to the
+                subsequent linear layer. This does not change the computation.
+
+                `LayerNorm
+                <https://wandb.ai/wandb_fc/LayerNorm/reports/Layer-Normalization-in-Pytorch-With-Examples---VmlldzoxMjk5MTk1>`_
+                is a common regularization technique used in transformers. Unlike BatchNorm, it
+                cannot be turned off at inference time, as it significantly alters the mathematical
+                function implemented by the transformer.
+
+                When `fold_ln` is set to True, LayerNorm (with weights :math:`w_{ln}` and
+                :math:`b_{ln}`) followed by a linear layer (:math:`W + b`) is optimized to
+                LayerNormPre (just centering & normalizing) followed by a new linear layer with
+                :math:`W_{eff} = w[:, \text{None}] * W` (element-wise multiplication) and
+                :math:`b_{eff} = b + b_{ln} @ W`. This transformation is computationally equivalent
+                and simplifies the model's interpretability. It essentially merges LayerNorm weights
+                into the subsequent linear layer's weights, which is handled by HookedTransformer
+                when loading pre-trained weights. Set `fold_ln` to False when loading a state dict
+                if you wish to turn this off.
+
+                Mathematically, LayerNorm is defined as follows:
+
+                .. math::
+                    x_1 &= x_0 - \\text{mean}(x_0)
+
+                    x_2 &= \\frac{x_1}{\\sqrt{\\text{mean}(x_1^2)}}
+
+                    x_3 &= x_2 \\cdot w
+
+                    x_4 &= x_3 + b
+
+                For further details, refer to `this document
+                <https://transformer-circuits.pub/2021/framework/index.html#:~:text=Handling%20Layer%20Normalization>`_.
+            center_writing_weights: Whether to center weights
+                writing to the residual stream (ie set mean to be zero). Due to LayerNorm this
+                doesn't change the computation.
+
+                A related idea to folding layernorm (``fold_ln``) - *every* component reading an
+                input from the residual stream is preceded by a LayerNorm, which means that the mean
+                of a residual stream vector (ie the component in the direction of all ones) never
+                matters. This means we can remove the all ones component of weights and biases whose
+                output *writes* to the residual stream. Mathematically, ``W_writing -=
+                W_writing.mean(dim=1, keepdim=True)``.
+            center_unembed: Whether to center W_U (ie set mean
+                to be zero). Softmax is translation invariant so this doesn't affect log probs or
+                loss, but does change logits.
+
+                The logits are fed into a softmax. Softmax is translation invariant (eg, adding 1 to
+                every logit doesn't change the output), so we can simplify things by setting the
+                mean of the logits to be zero. This is equivalent to setting the mean of every
+                output vector of ``W_U`` to zero. In code, ``W_U -= W_U.mean(dim=-1,
+                keepdim=True)``.
+            refactor_factored_attn_matrices: Whether to convert the factored
+                matrices (W_Q & W_K, and W_O & W_V) to be "even". Defaults to False
+            checkpoint_index: If loading from a checkpoint, the index of
+                the checkpoint to load.
+            checkpoint_value: If loading from a checkpoint, the value of
+                the checkpoint to load, ie the step or token number (each model has checkpoints
+                labelled with exactly one of these). E.g. ``1000`` for a checkpoint taken at step
+                1000 or after 1000 tokens. If `checkpoint_index` is also specified, this will be
+                ignored.
+            hf_model: If you have already loaded in the
+                HuggingFace model, you can pass it in here rather than needing to recreate the
+                object. Defaults to None.
+            device: The device to load the model onto. By
+                default will load to CUDA if available, else CPU.
+            n_devices: The number of devices to split the model
+                across. Defaults to 1. If greater than 1, `device` must be cuda.
+            device_allocation_strategy: Strategy for multi-device allocation when n_devices > 1.
+                "sequential" (recommended) keeps transformer blocks together on the same GPU until 
+                memory constraints force a move to the next GPU, providing better performance.
+                "greedy" uses round-robin allocation for backward compatibility.
+                If None, defaults to "greedy" with deprecation warning (will change to "sequential" in v0.13).
+                Ignored when n_devices <= 1.
+            tokenizer: The tokenizer to use for the model. If not
+                provided, it is inferred from cfg.tokenizer_name or initialized to None. If None,
+                then the model cannot be passed strings, and d_vocab must be explicitly set.
+            move_to_device: Whether to move the model to the device specified in
+                cfg. device. Must be true if `n_devices` in the config is greater than 1, since the
+                model's layers will be split across multiple devices.
+            fold_value_biases: Each attention head has a value bias. Values are averaged to create
+                mixed values (``z``), weighted by the attention pattern, but as the bias is
+                constant, its contribution to ``z`` is exactly the same. The output of a head is ``z
+                @ W_O``, and so the value bias just linearly adds to the output of the head. This
+                means that the value bias of a head has nothing to do with the head, and is just a
+                constant added to the attention layer outputs. We can take the sum across these and
+                b_O to get an "effective bias" for the layer. In code, we set ``b_V=0``. and ``b_O =
+                (b_V @ W_O).sum(dim=0) + b_O``.
+
+                The technical derivation of this is as follows. ``v = residual @ W_V[h] +
+                broadcast_b_V[h]`` for each head ``h`` (where ``b_V`` is broadcast up from shape
+                ``d_head`` to shape ``[position, d_head]``). And ``z = pattern[h] @ v = pattern[h] @
+                residual @ W_V[h] + pattern[h] @ broadcast_b_V[h]``. Because ``pattern[h]`` is
+                ``[destination_position, source_position]`` and ``broadcast_b_V`` is constant along
+                the ``(source_)position`` dimension, we're basically just multiplying it by the sum
+                of the pattern across the ``source_position`` dimension, which is just ``1``. So it
+                remains exactly the same, and so is just broadcast across the destination positions.
+            default_prepend_bos: Default behavior of whether to prepend the BOS
+                token when the methods of HookedTransformer process input text to tokenize (only
+                when input is a string).
+                Resolution order for default_prepend_bos:
+                1. If user passes value explicitly, use that value
+                2. Model-specific default from cfg_dict if it exists (e.g. for bloom models it's False)
+                3. Global default (True)
+
+                Even for models not explicitly trained with the BOS token, heads often use the first position as a resting position
+                and accordingly lose information from the first token, so this empirically seems to give better
+                results. Note that you can also locally override the default behavior by passing in
+                prepend_bos=True/False when you call a method that processes the input string.
+            from_pretrained_kwargs: Any other optional argument passed to
+                HuggingFace's from_pretrained (e.g. "cache_dir" or "torch_dtype"). Also passed to
+                other HuggingFace functions when compatible. For some models or arguments it doesn't
+                work, especially for models that are not internally loaded with HuggingFace's
+                from_pretrained (e.g. SoLU models).
+            dtype: What data type to load the model in (also sets the dtype of
+                the HuggingFace model). Set to bfloat16 or float16 if you get out of memory errors when loading
+                the model.
+            default_padding_side: Which side to pad on when tokenizing. Defaults to
+                "right".
+            first_n_layers: If specified, only load the first n layers of the model.
+        """
+        if model_name.lower().startswith("t5"):
+            raise RuntimeError(
+                "Execution stopped: Please use HookedEncoderDecoder to load T5 models instead of HookedTransformer."
+            )
+
+        assert not (
+            from_pretrained_kwargs.get("load_in_8bit", False)
+            or from_pretrained_kwargs.get("load_in_4bit", False)
+        ), "Quantization not supported"
+
+        if hf_model is not None:
+            hf_cfg = hf_model.config.to_dict()
+            qc = hf_cfg.get("quantization_config", {})
+            load_in_4bit = qc.get("load_in_4bit", False)
+            load_in_8bit = qc.get("load_in_8bit", False)
+            quant_method = qc.get("quant_method", "")
+            assert not load_in_8bit, "8-bit quantization is not supported"
+            assert not (
+                load_in_4bit and (version.parse(torch.__version__) < version.parse("2.1.1"))
+            ), "Quantization is only supported for torch versions >= 2.1.1"
+            assert not (
+                load_in_4bit and ("llama" not in model_name.lower())
+            ), "Quantization is only supported for Llama models"
+            if load_in_4bit:
+                assert (
+                    qc.get("quant_method", "") == "bitsandbytes"
+                ), "Only bitsandbytes quantization is supported"
+        else:
+            hf_cfg = {}
+
+        if isinstance(dtype, str):
+            # Convert from string to a torch dtype
+            dtype = DTYPE_FROM_STRING[dtype]
+        if "torch_dtype" in from_pretrained_kwargs:
+            # For backwards compatibility with the previous way to do low precision loading
+            # This should maybe check the user did not explicitly set dtype *and* torch_dtype
+            dtype = from_pretrained_kwargs["torch_dtype"]
+
+        if (
+            (from_pretrained_kwargs.get("torch_dtype", None) == torch.float16)
+            or dtype == torch.float16
+        ) and device in ["cpu", None]:
+            logging.warning("float16 models may not work on CPU. Consider using a GPU or bfloat16.")
+
+        # Get the model name used in HuggingFace, rather than the alias.
+        official_model_name = loading.get_official_model_name(model_name)
+
+        # Load the config into an HookedTransformerConfig object. If loading from a
+        # checkpoint, the config object will contain the information about the
+        # checkpoint
+        cfg = loading.get_pretrained_model_config(
+            official_model_name,
+            hf_cfg=hf_cfg,
+            checkpoint_index=checkpoint_index,
+            checkpoint_value=checkpoint_value,
+            fold_ln=fold_ln,
+            device=device,
+            n_devices=n_devices,
+            device_allocation_strategy=device_allocation_strategy,  # NEW PARAMETER PASSED THROUGH
+            default_prepend_bos=default_prepend_bos,
+            dtype=dtype,
+            first_n_layers=first_n_layers,
+            **from_pretrained_kwargs,
+        )
+
+        if cfg.positional_embedding_type == "shortformer":
+            if fold_ln:
+                logging.warning(
+                    "You tried to specify fold_ln=True for a shortformer model, but this can't be done! Setting fold_"
+                    "ln=False instead."
+                )
+                fold_ln = False
+            if center_unembed:
+                logging.warning(
+                    "You tried to specify center_unembed=True for a shortformer model, but this can't be done! "
+                    "Setting center_unembed=False instead."
+                )
+                center_unembed = False
+            if center_writing_weights:
+                logging.warning(
+                    "You tried to specify center_writing_weights=True for a shortformer model, but this can't be done! "
+                    "Setting center_writing_weights=False instead."
+                )
+                center_writing_weights = False
+        if center_unembed and cfg.output_logits_soft_cap > 0.0:
             logging.warning(
-                "You tried to specify center_unembed=True for a shortformer model, but this can't be done! "
+                "You tried to specify center_unembed=True for a model using logit softcap, but this can't be done! Softcapping is not invariant upon adding a constant "
                 "Setting center_unembed=False instead."
             )
             center_unembed = False
-        if center_writing_weights:
-            logging.warning(
-                "You tried to specify center_writing_weights=True for a shortformer model, but this can't be done! "
-                "Setting center_writing_weights=False instead."
-            )
-            center_writing_weights = False
-    if center_unembed and cfg.output_logits_soft_cap > 0.0:
-        logging.warning(
-            "You tried to specify center_unembed=True for a model using logit softcap, but this can't be done! Softcapping is not invariant upon adding a constant "
-            "Setting center_unembed=False instead."
+
+        # Get the state dict of the model (ie a mapping of parameter names to tensors), processed to
+        # match the HookedTransformer parameter names.
+        state_dict = loading.get_pretrained_state_dict(
+            official_model_name, cfg, hf_model, dtype=dtype, **from_pretrained_kwargs
         )
-        center_unembed = False
 
-    # Get the state dict of the model (ie a mapping of parameter names to tensors), processed to
-    # match the HookedTransformer parameter names.
-    state_dict = loading.get_pretrained_state_dict(
-        official_model_name, cfg, hf_model, dtype=dtype, **from_pretrained_kwargs
-    )
+        # Create the HookedTransformer object
+        model = cls(
+            cfg,
+            tokenizer,
+            move_to_device=False,
+            default_padding_side=default_padding_side,
+        )
 
-    # Create the HookedTransformer object
-    model = cls(
-        cfg,
-        tokenizer,
-        move_to_device=False,
-        default_padding_side=default_padding_side,
-    )
+        model.load_and_process_state_dict(
+            state_dict,
+            fold_ln=fold_ln,
+            center_writing_weights=center_writing_weights,
+            center_unembed=center_unembed,
+            fold_value_biases=fold_value_biases,
+            refactor_factored_attn_matrices=refactor_factored_attn_matrices,
+        )
 
-    model.load_and_process_state_dict(
-        state_dict,
-        fold_ln=fold_ln,
-        center_writing_weights=center_writing_weights,
-        center_unembed=center_unembed,
-        fold_value_biases=fold_value_biases,
-        refactor_factored_attn_matrices=refactor_factored_attn_matrices,
-    )
+        if move_to_device:
+            model.move_model_modules_to_device()
 
-    if move_to_device:
-        model.move_model_modules_to_device()
+        print(f"Loaded pretrained model {model_name} into HookedTransformer")
 
-    print(f"Loaded pretrained model {model_name} into HookedTransformer")
-
-    return model
+        return model
 
     @classmethod
     def from_pretrained_no_processing(
