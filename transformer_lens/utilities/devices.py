@@ -572,3 +572,4 @@ def move_to_and_update_config(
         for k, v in model.state_dict().items():
             model.state_dict()[k] = v.to(device_or_dtype)
     return nn.Module.to(model, device_or_dtype)
+#irrelevant comment 
