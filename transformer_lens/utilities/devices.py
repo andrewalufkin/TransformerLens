@@ -491,6 +491,7 @@ def allocate_model_devices(
         Dictionary mapping module names to device strings
 
     Example:
+        >>> from transformer_lens import HookedTransformerConfig, allocate_model_devices
         >>> cfg = HookedTransformerConfig(n_layers=12, d_model=768, n_devices=2)
         >>> allocation = allocate_model_devices(cfg, strategy="sequential")
         >>> print(allocation)
