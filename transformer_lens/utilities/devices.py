@@ -493,7 +493,7 @@ def allocate_model_devices(
     Example:
         >>> from transformer_lens import HookedTransformerConfig
         >>> from transformer_lens.utilities.devices import allocate_model_devices
-        >>> cfg = HookedTransformerConfig(n_layers=12, d_model=768, n_devices=2)
+        >>> cfg = HookedTransformerConfig(n_layers=12, d_model=768, n_ctx=1024, d_head=64, n_heads=12, d_vocab=50257, d_mlp=3072, device="cuda", n_devices=2)
         >>> allocation = allocate_model_devices(cfg, strategy="sequential")
         >>> print(allocation)
         {'blocks.0': 'cuda:0', 'blocks.1': 'cuda:0', ..., 'blocks.8': 'cuda:1', ...}
