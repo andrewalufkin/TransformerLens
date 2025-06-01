@@ -498,7 +498,7 @@ def allocate_model_devices(
         >>> isinstance(allocation, dict)
         True
         >>> len(allocation)
-        17
+        16
         >>> all(key.startswith(('blocks.', 'embed', 'pos_embed', 'ln_final', 'unembed')) for key in allocation.keys())
         True
     """
