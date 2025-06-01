@@ -431,8 +431,7 @@ class HookedTransformer(HookedRootModule):
         attention_mask: Optional[torch.Tensor] = None,  # [batch pos]
         stop_at_layer: Optional[int] = None,
         past_kv_cache: Optional[HookedTransformerKeyValueCache] = None,
-    ) -> Loss:
-        ...
+    ) -> Loss: ...
 
     @overload
     def forward(
@@ -448,8 +447,7 @@ class HookedTransformer(HookedRootModule):
         attention_mask: Optional[torch.Tensor] = None,  # [batch pos]
         stop_at_layer: Optional[int] = None,
         past_kv_cache: Optional[HookedTransformerKeyValueCache] = None,
-    ) -> Loss:
-        ...
+    ) -> Loss: ...
 
     @overload
     def forward(
@@ -465,8 +463,7 @@ class HookedTransformer(HookedRootModule):
         attention_mask: Optional[torch.Tensor] = None,  # [batch pos]
         stop_at_layer: Optional[int] = None,
         past_kv_cache: Optional[HookedTransformerKeyValueCache] = None,
-    ) -> Tuple[Float[torch.Tensor, "batch pos d_vocab"], Loss]:
-        ...
+    ) -> Tuple[Float[torch.Tensor, "batch pos d_vocab"], Loss]: ...
 
     @overload
     def forward(
@@ -482,8 +479,7 @@ class HookedTransformer(HookedRootModule):
         attention_mask: Optional[torch.Tensor] = None,  # [batch pos]
         stop_at_layer: Optional[int] = None,
         past_kv_cache: Optional[HookedTransformerKeyValueCache] = None,
-    ) -> None:
-        ...
+    ) -> None: ...
 
     def forward(
         self,
@@ -665,14 +661,12 @@ class HookedTransformer(HookedRootModule):
     @overload
     def run_with_cache(
         self, *model_args, return_cache_object: Literal[True] = True, **kwargs
-    ) -> Tuple[Output, ActivationCache]:
-        ...
+    ) -> Tuple[Output, ActivationCache]: ...
 
     @overload
     def run_with_cache(
         self, *model_args, return_cache_object: Literal[False], **kwargs
-    ) -> Tuple[Output, Dict[str, torch.Tensor]]:
-        ...
+    ) -> Tuple[Output, Dict[str, torch.Tensor]]: ...
 
     def run_with_cache(
         self, *model_args, return_cache_object=True, remove_batch_dim=False, **kwargs
@@ -1094,7 +1088,7 @@ class HookedTransformer(HookedRootModule):
     def move_model_modules_to_device(self):
         """
         Move model modules to appropriate devices using our new sequential allocator.
-        
+
         Uses the new device allocation strategy for multi-device setups, falls back
         to single-device allocation for backward compatibility.
         """
@@ -1116,12 +1110,12 @@ class HookedTransformer(HookedRootModule):
             for i, block in enumerate(self.blocks):
                 block.to(devices.get_best_available_device(self.cfg))
             return
-        
+
         # Multi-device case: use our new allocator
         try:
             # Determine allocation strategy with backward compatibility
-            strategy = getattr(self.cfg, 'device_allocation_strategy', None)
-            
+            strategy = getattr(self.cfg, "device_allocation_strategy", None)
+
             # Handle backward compatibility: default to greedy for now, with deprecation warning
             if strategy is None:
                 warnings.warn(
@@ -1130,47 +1124,53 @@ class HookedTransformer(HookedRootModule):
                     "HookedTransformer.from_pretrained(..., device_allocation_strategy='greedy'). "
                     "For improved performance, use device_allocation_strategy='sequential'.",
                     DeprecationWarning,
-                    stacklevel=2
+                    stacklevel=2,
                 )
-                strategy = 'greedy'  # Maintain current behavior for now
-            
+                strategy = "greedy"  # Maintain current behavior for now
+
             # Get device allocation map using our new allocator
             device_allocation_map = allocate_model_devices(
-                self.cfg,
-                strategy=strategy,
-                max_devices=self.cfg.n_devices
+                self.cfg, strategy=strategy, max_devices=self.cfg.n_devices
             )
-            
+
             # Store allocation map for runtime use by get_device_for_block_index
             self.cfg.device_allocation_map = device_allocation_map
-            
+
             # Apply device allocation to all modules
             self.embed.to(torch.device(device_allocation_map.get("embed", self.cfg.device)))
             self.hook_embed.to(torch.device(device_allocation_map.get("embed", self.cfg.device)))
-            
+
             if self.cfg.positional_embedding_type != "rotary":
-                self.pos_embed.to(torch.device(device_allocation_map.get("pos_embed", self.cfg.device)))
-                self.hook_pos_embed.to(torch.device(device_allocation_map.get("pos_embed", self.cfg.device)))
-            
+                self.pos_embed.to(
+                    torch.device(device_allocation_map.get("pos_embed", self.cfg.device))
+                )
+                self.hook_pos_embed.to(
+                    torch.device(device_allocation_map.get("pos_embed", self.cfg.device))
+                )
+
             if hasattr(self, "ln_final"):
-                self.ln_final.to(torch.device(device_allocation_map.get("ln_final", self.cfg.device)))
-            
+                self.ln_final.to(
+                    torch.device(device_allocation_map.get("ln_final", self.cfg.device))
+                )
+
             self.unembed.to(torch.device(device_allocation_map.get("unembed", self.cfg.device)))
-            
+
             # Move transformer blocks to allocated devices
             for i, block in enumerate(self.blocks):
-                block_device = torch.device(device_allocation_map.get(f"blocks.{i}", self.cfg.device))
+                block_device = torch.device(
+                    device_allocation_map.get(f"blocks.{i}", self.cfg.device)
+                )
                 block.to(block_device)
-                
+
             print(f"✓ Applied {strategy} device allocation across {self.cfg.n_devices} devices")
-            
+
         except Exception as e:
             # Graceful fallback to original behavior if anything goes wrong
             warnings.warn(
                 f"New device allocator failed ({e}), falling back to original allocation method",
-                RuntimeWarning
+                RuntimeWarning,
             )
-            
+
             # Fallback: use original logic
             self.embed.to(devices.get_best_available_device(self.cfg))
             self.hook_embed.to(devices.get_best_available_device(self.cfg))
@@ -1298,7 +1298,7 @@ class HookedTransformer(HookedRootModule):
             n_devices: The number of devices to split the model
                 across. Defaults to 1. If greater than 1, `device` must be cuda.
             device_allocation_strategy: Strategy for multi-device allocation when n_devices > 1.
-                "sequential" (recommended) keeps transformer blocks together on the same GPU until 
+                "sequential" (recommended) keeps transformer blocks together on the same GPU until
                 memory constraints force a move to the next GPU, providing better performance.
                 "greedy" uses round-robin allocation for backward compatibility.
                 If None, defaults to "greedy" with deprecation warning (will change to "sequential" in v0.13).
@@ -2378,11 +2378,13 @@ class HookedTransformer(HookedRootModule):
                             top_p=top_p,
                             temperature=temperature,
                             freq_penalty=freq_penalty,
-                            tokens=torch.cat(
-                                (input_tokens, torch.cat(sampled_tokens_list, dim=1)), dim=1
-                            )
-                            if "sampled_tokens" in locals()
-                            else input_tokens,
+                            tokens=(
+                                torch.cat(
+                                    (input_tokens, torch.cat(sampled_tokens_list, dim=1)), dim=1
+                                )
+                                if "sampled_tokens" in locals()
+                                else input_tokens
+                            ),
                         ).to(devices.get_device_for_block_index(0, self.cfg))
                     else:
                         sampled_tokens = utils.sample_logits(
