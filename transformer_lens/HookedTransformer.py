@@ -11,6 +11,7 @@ a deeper understanding of the internal workings of transformers like GPT-2.
 
 import logging
 import os
+import warnings
 from typing import (
     Dict,
     List,
@@ -64,8 +65,6 @@ from transformer_lens.utils import (
     init_xavier_normal_,
     init_xavier_uniform_,
 )
-
-import warnings
 
 SingleLoss = Float[torch.Tensor, ""]  # Type alias for a single element tensor
 LossPerToken = Float[torch.Tensor, "batch pos-1"]
