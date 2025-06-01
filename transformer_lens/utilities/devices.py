@@ -491,17 +491,17 @@ def allocate_model_devices(
         Dictionary mapping module names to device strings
 
     Example:
-    >>> from transformer_lens import HookedTransformerConfig
-    >>> from transformer_lens.utilities.devices import allocate_model_devices
-    >>> cfg = HookedTransformerConfig(n_layers=12, d_model=768, n_ctx=1024, d_head=64, n_devices=1, attn_only=True)
-    >>> allocation = allocate_model_devices(cfg, strategy="sequential")
-    >>> isinstance(allocation, dict)
-    True
-    >>> len(allocation)  # Should have blocks + embed + pos_embed + ln_final + unembed
-    17
-    >>> all(key.startswith(('blocks.', 'embed', 'pos_embed', 'ln_final', 'unembed')) for key in allocation.keys())
-    True
-"""
+        >>> from transformer_lens import HookedTransformerConfig
+        >>> from transformer_lens.utilities.devices import allocate_model_devices
+        >>> cfg = HookedTransformerConfig(n_layers=12, d_model=768, n_ctx=1024, d_head=64, n_heads=12, d_vocab=50257, d_mlp=3072, device="cuda", n_devices=1, attn_only=True)
+        >>> allocation = allocate_model_devices(cfg, strategy="sequential")
+        >>> isinstance(allocation, dict)
+        True
+        >>> len(allocation)
+        17
+        >>> all(key.startswith(('blocks.', 'embed', 'pos_embed', 'ln_final', 'unembed')) for key in allocation.keys())
+        True
+    """
     return _allocator.allocate_model_devices(cfg, strategy, device_map, max_devices)
 
 
