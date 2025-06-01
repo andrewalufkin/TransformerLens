@@ -166,7 +166,7 @@ class TransformerDeviceAllocator:
         )
 
         mlp_params = (
-            cfg.d_model * cfg.d_mlp * 2 + cfg.d_mlp + cfg.d_model  # W_in, W_out  # bias terms
+            cfg.d_model * (cfg.d_mlp or 0) * 2 + (cfg.d_mlp or 0) + cfg.d_model  # W_in, W_out  # bias terms
         )
 
         layernorm_params = cfg.d_model * 2  # Two layer norms per block
@@ -261,7 +261,7 @@ class TransformerDeviceAllocator:
         gpu_usage_mb = {gpu: 0.0 for gpu in gpu_memory_mb.keys()}
         available_gpus = sorted(gpu_memory_mb.keys())
 
-        allocation_map = {}
+        allocation_map: Dict[str, str] = {}
 
         # Phase 1: Handle user-pinned modules
         self._handle_user_pinned_modules(
@@ -328,7 +328,7 @@ class TransformerDeviceAllocator:
         gpu_usage_mb = {gpu: 0.0 for gpu in gpu_memory_mb.keys()}
         available_gpus = sorted(gpu_memory_mb.keys())
 
-        allocation_map = {}
+        allocation_map: Dict[str, str] = {}
 
         # Phase 1: Handle user-pinned modules
         self._handle_user_pinned_modules(
@@ -452,7 +452,7 @@ class TransformerDeviceAllocator:
             )
 
         # Log module distribution
-        gpu_allocations = {}
+        gpu_allocations: Dict[str, List[str]] = {}
         for module_name, gpu in allocation_map.items():
             if gpu not in gpu_allocations:
                 gpu_allocations[gpu] = []

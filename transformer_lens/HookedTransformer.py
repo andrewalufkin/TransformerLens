@@ -1143,28 +1143,28 @@ class HookedTransformer(HookedRootModule):
             self.cfg.device_allocation_map = device_allocation_map
 
             # Apply device allocation to all modules
-            self.embed.to(torch.device(device_allocation_map.get("embed", self.cfg.device)))
-            self.hook_embed.to(torch.device(device_allocation_map.get("embed", self.cfg.device)))
+            self.embed.to(torch.device(device_allocation_map.get("embed", "cpu")))
+            self.hook_embed.to(torch.device(device_allocation_map.get("embed", "cpu")))
 
             if self.cfg.positional_embedding_type != "rotary":
                 self.pos_embed.to(
-                    torch.device(device_allocation_map.get("pos_embed", self.cfg.device))
+                    torch.device(device_allocation_map.get("pos_embed", "cpu"))
                 )
                 self.hook_pos_embed.to(
-                    torch.device(device_allocation_map.get("pos_embed", self.cfg.device))
+                    torch.device(device_allocation_map.get("pos_embed", "cpu"))
                 )
 
             if hasattr(self, "ln_final"):
                 self.ln_final.to(
-                    torch.device(device_allocation_map.get("ln_final", self.cfg.device))
+                    torch.device(device_allocation_map.get("ln_final", "cpu"))
                 )
 
-            self.unembed.to(torch.device(device_allocation_map.get("unembed", self.cfg.device)))
+            self.unembed.to(torch.device(device_allocation_map.get("unembed", "cpu")))
 
             # Move transformer blocks to allocated devices
             for i, block in enumerate(self.blocks):
                 block_device = torch.device(
-                    device_allocation_map.get(f"blocks.{i}", self.cfg.device)
+                    device_allocation_map.get(f"blocks.{i}", "cpu")
                 )
                 block.to(block_device)
 
@@ -2717,3 +2717,54 @@ class HookedTransformer(HookedRootModule):
                 padding_side=padding_side,
                 truncate=True,
             )
+
+    @classmethod
+    def get_device_for_block_index(
+        cls,
+        index: int,
+        cfg: "transformer_lens.HookedTransformerConfig",
+        device: Optional[Union[torch.device, str]] = None,
+    ):
+        """
+        Determine the device for a given layer index based on the model configuration.
+
+        This function assists in distributing model layers across multiple devices. The distribution
+        is based on the configuration's number of layers (cfg.n_layers) and devices (cfg.n_devices).
+
+        Args:
+            index (int): Model layer index.
+            cfg (HookedTransformerConfig): Model and device configuration.
+            device (Optional[Union[torch.device, str]], optional): Initial device used for determining the target device.
+                If not provided, the function uses the device specified in the configuration (cfg.device).
+
+        Returns:
+            torch.device: The device for the specified layer index.
+
+        Deprecated:
+            This function uses a simple greedy round-robin approach that can cause performance issues.
+            Use allocate_model_devices() with strategy="sequential" for better performance, or with
+            strategy="greedy" for backward compatibility. This will be removed in 3.0
+        """
+        warnings.warn(
+            "get_device_for_block_index is deprecated and will be removed in TransformerLens 3.0. "
+            "Use allocate_model_devices() instead for better multi-GPU performance.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
+        # NEW: Check if we have a device allocation strategy from our new allocator
+        if hasattr(cfg, "device_allocation_strategy") and cfg.device_allocation_strategy:
+            block_name = f"blocks.{index}"
+            if block_name in cfg.device_allocation_map:
+                return torch.device(cfg.device_allocation_map[block_name])
+
+        # FALLBACK: Use old logic for backward compatibility
+        assert cfg.device is not None
+        layers_per_device = cfg.n_layers // cfg.n_devices
+        if device is None:
+            device = cfg.device
+        device = torch.device(device)
+        if device.type == "cpu":
+            return device
+        device_index = (device.index or 0) + (index // layers_per_device)
+        return torch.device(device.type, device_index)
