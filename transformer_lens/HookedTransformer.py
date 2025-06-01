@@ -609,7 +609,7 @@ class HookedTransformer(HookedRootModule):
                     residual,
                     # Cache contains a list of HookedTransformerKeyValueCache objects, one for each
                     # block
-                    past_kv_cache_entry=past_kv_cache[i] if past_kv_cache is not None else None,
+                    past_kv_cache_entry=(past_kv_cache[i] if past_kv_cache is not None else None),
                     shortformer_pos_embed=shortformer_pos_embed,
                     attention_mask=attention_mask,
                 )  # [batch, pos, d_model]
@@ -2318,7 +2318,9 @@ class HookedTransformer(HookedRootModule):
 
                 tokens = torch.zeros((embeds.size(0), embeds.size(1))).to(torch.int)
                 attention_mask = utils.get_attention_mask(
-                    self.tokenizer, tokens, False if prepend_bos is None else prepend_bos
+                    self.tokenizer,
+                    tokens,
+                    False if prepend_bos is None else prepend_bos,
                 ).to(device)
                 residual, shortformer_pos_embed = self.get_residual(
                     embeds,
@@ -2380,7 +2382,11 @@ class HookedTransformer(HookedRootModule):
                             freq_penalty=freq_penalty,
                             tokens=(
                                 torch.cat(
-                                    (input_tokens, torch.cat(sampled_tokens_list, dim=1)), dim=1
+                                    (
+                                        input_tokens,
+                                        torch.cat(sampled_tokens_list, dim=1),
+                                    ),
+                                    dim=1,
                                 )
                                 if "sampled_tokens" in locals()
                                 else input_tokens
@@ -2388,7 +2394,10 @@ class HookedTransformer(HookedRootModule):
                         ).to(devices.get_device_for_block_index(0, self.cfg))
                     else:
                         sampled_tokens = utils.sample_logits(
-                            final_logits, top_k=top_k, top_p=top_p, temperature=temperature
+                            final_logits,
+                            top_k=top_k,
+                            top_p=top_p,
+                            temperature=temperature,
                         ).to(devices.get_device_for_block_index(0, self.cfg))
                 else:
                     sampled_tokens = final_logits.argmax(-1).to(
