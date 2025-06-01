@@ -166,7 +166,9 @@ class TransformerDeviceAllocator:
         )
 
         mlp_params = (
-            cfg.d_model * (cfg.d_mlp or 0) * 2 + (cfg.d_mlp or 0) + cfg.d_model  # W_in, W_out  # bias terms
+            cfg.d_model * (cfg.d_mlp or 0) * 2
+            + (cfg.d_mlp or 0)
+            + cfg.d_model  # W_in, W_out  # bias terms
         )
 
         layernorm_params = cfg.d_model * 2  # Two layer norms per block

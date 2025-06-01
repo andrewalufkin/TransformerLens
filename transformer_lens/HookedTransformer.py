@@ -1147,25 +1147,17 @@ class HookedTransformer(HookedRootModule):
             self.hook_embed.to(torch.device(device_allocation_map.get("embed", "cpu")))
 
             if self.cfg.positional_embedding_type != "rotary":
-                self.pos_embed.to(
-                    torch.device(device_allocation_map.get("pos_embed", "cpu"))
-                )
-                self.hook_pos_embed.to(
-                    torch.device(device_allocation_map.get("pos_embed", "cpu"))
-                )
+                self.pos_embed.to(torch.device(device_allocation_map.get("pos_embed", "cpu")))
+                self.hook_pos_embed.to(torch.device(device_allocation_map.get("pos_embed", "cpu")))
 
             if hasattr(self, "ln_final"):
-                self.ln_final.to(
-                    torch.device(device_allocation_map.get("ln_final", "cpu"))
-                )
+                self.ln_final.to(torch.device(device_allocation_map.get("ln_final", "cpu")))
 
             self.unembed.to(torch.device(device_allocation_map.get("unembed", "cpu")))
 
             # Move transformer blocks to allocated devices
             for i, block in enumerate(self.blocks):
-                block_device = torch.device(
-                    device_allocation_map.get(f"blocks.{i}", "cpu")
-                )
+                block_device = torch.device(device_allocation_map.get(f"blocks.{i}", "cpu"))
                 block.to(block_device)
 
             print(f"✓ Applied {strategy} device allocation across {self.cfg.n_devices} devices")
