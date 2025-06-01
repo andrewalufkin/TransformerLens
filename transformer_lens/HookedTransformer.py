@@ -65,6 +65,8 @@ from transformer_lens.utils import (
     init_xavier_uniform_,
 )
 
+import warnings
+
 SingleLoss = Float[torch.Tensor, ""]  # Type alias for a single element tensor
 LossPerToken = Float[torch.Tensor, "batch pos-1"]
 Loss = Union[SingleLoss, LossPerToken]
@@ -1141,6 +1143,7 @@ class HookedTransformer(HookedRootModule):
 
             # Store allocation map for runtime use by get_device_for_block_index
             self.cfg.device_allocation_map = device_allocation_map
+            self.cfg.device_allocation_strategy = strategy
 
             # Apply device allocation to all modules
             self.embed.to(torch.device(device_allocation_map.get("embed", "cpu")))
@@ -2714,7 +2717,7 @@ class HookedTransformer(HookedRootModule):
     def get_device_for_block_index(
         cls,
         index: int,
-        cfg: "transformer_lens.HookedTransformerConfig",
+        cfg: HookedTransformerConfig,
         device: Optional[Union[torch.device, str]] = None,
     ):
         """
@@ -2747,7 +2750,7 @@ class HookedTransformer(HookedRootModule):
         # NEW: Check if we have a device allocation strategy from our new allocator
         if hasattr(cfg, "device_allocation_strategy") and cfg.device_allocation_strategy:
             block_name = f"blocks.{index}"
-            if block_name in cfg.device_allocation_map:
+            if cfg.device_allocation_map is not None and block_name in cfg.device_allocation_map:
                 return torch.device(cfg.device_allocation_map[block_name])
 
         # FALLBACK: Use old logic for backward compatibility

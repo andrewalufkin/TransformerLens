@@ -97,6 +97,8 @@ class HookedTransformerConfig:
             multiple devices. Options are 'sequential' (place contiguous blocks on same device until
             memory cap reached) and 'greedy' (round-robin allocation). Defaults to 'sequential'.
             This is only used if `n_devices` > 1.
+        device_allocation_map (dict, *optional*): The map to use for allocating layers to devices when using
+            multiple devices. Defaults to None. This is only used if `n_devices` > 1.
         attention_dir (str): Whether to use causal (aka unidirectional aka GPT-2
             style) or bidirectional attention. Options are 'causal' and
             'bidirectional'. Defaults to 'causal'
@@ -231,6 +233,7 @@ class HookedTransformerConfig:
     device: Optional[str] = None
     n_devices: int = 1
     device_allocation_strategy: Optional[str] = "sequential"
+    device_allocation_map: Optional[Dict[str, str]] = None
     attention_dir: str = "causal"
     attn_only: bool = False
     seed: Optional[int] = None
