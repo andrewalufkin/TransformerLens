@@ -263,6 +263,16 @@ class TransformerDeviceAllocator:
         gpu_usage_mb = {gpu: 0.0 for gpu in gpu_memory_mb.keys()}
         available_gpus = sorted(gpu_memory_mb.keys())
 
+        # Check if any block is too large for sequential allocation
+        largest_gpu_cap = max(gpu_memory_mb.values())
+        transformer_blocks = [m for m in modules if m.is_transformer_block]
+        if self._needs_greedy_fallback(transformer_blocks, largest_gpu_cap):
+            self.logger.warning(
+                "One or more transformer blocks exceed the largest GPU capacity. "
+                "Falling back to greedy allocation strategy."
+            )
+            return self._allocate_greedy(cfg, gpu_memory_gb, user_device_map)
+
         allocation_map: Dict[str, str] = {}
 
         # Phase 1: Handle user-pinned modules
@@ -313,6 +323,21 @@ class TransformerDeviceAllocator:
 
         self._log_allocation_summary(allocation_map, gpu_usage_mb, gpu_memory_mb)
         return allocation_map
+
+    def _needs_greedy_fallback(
+        self, transformer_blocks: List[ModuleInfo], largest_gpu_cap: float
+    ) -> bool:
+        """
+        Check if any transformer block exceeds the largest GPU capacity.
+
+        Args:
+            transformer_blocks: List of transformer block modules
+            largest_gpu_cap: Maximum memory capacity of the largest GPU in MB
+
+        Returns:
+            bool: True if any block exceeds the largest GPU capacity
+        """
+        return any(block.memory_mb > largest_gpu_cap for block in transformer_blocks)
 
     def _allocate_greedy(
         self,
